@@ -1,3 +1,3 @@
 # ASAM-MDF
 
-A .NET 6.0 implementation of the ASAM MDF Standard
+A .NET 3.5 implementation of the ASAM MDF Standard
