@@ -146,6 +146,10 @@
                 block.MinValue = mdf.ReadDouble();
                 block.MaxValue = mdf.ReadDouble();
             }
+            else
+            {
+                mdf.UpdatePosition(mdf.position + 16);
+            }
 
             block.SampleRate = mdf.ReadDouble();
 
