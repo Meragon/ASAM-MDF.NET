@@ -8,7 +8,7 @@ namespace ASAM.MDF.Libary
 {
     internal class DataZippedBlock : Block
     {
-        private ulong indexStart; // start compressed data index
+        private int indexStart; // start compressed data index
         public DataZippedBlock(Mdf mdf) : base(mdf)
         { }
 
@@ -21,7 +21,7 @@ namespace ASAM.MDF.Libary
         public byte ZHeader { get; private set; }
         public ZCompressionInfo CompressionInfo { get; private set; }
 
-        public static DataZippedBlock Read(Mdf mdf, ulong position)
+        public static DataZippedBlock Read(Mdf mdf, int position)
         {
             mdf.UpdatePosition(position);
 

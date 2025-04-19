@@ -108,7 +108,8 @@
                         break;
 
                     case SignalTypeV3.String:
-                        value = ChannelGroup.Mdf.IDBlock.Encoding.GetString(Data, byteOffset, channel.NumberOfBits / 8);
+                        var valueString = ChannelGroup.Mdf.IDBlock.Encoding.GetString(Data, byteOffset, channel.NumberOfBits / 8).Replace("\0", "");
+                        value = string.IsNullOrEmpty(valueString) ? null : valueString;
                         break;
 
                 }

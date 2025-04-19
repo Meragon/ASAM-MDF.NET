@@ -1,10 +1,15 @@
 ﻿namespace ASAM.MDF.Libary
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using ASAM.MDF.Libary.Types;
 
     public class HeaderBlock : Block
     {
+        internal List<PointerAddress<uint>> listAddressesV23;
+        internal List<PointerAddress<ulong>> listAddressesV4;
+
         private string author;
         private string date;
         private string organization;
@@ -12,9 +17,13 @@
         private string subject;
         private string time;
         private string timerIdentification;
-        private ulong ptrFirstDataGroup;
-        private ulong ptrTextBlock;
-        private uint ptrProgramBlock;
+        internal PointerAddress<uint> ptrFirstDataGroup;
+        internal PointerAddress<uint> ptrTextBlock;
+        internal PointerAddress<uint> ptrProgramBlock;
+        
+        internal PointerAddress<ulong> ptrFirstDataGroupV4;
+        internal PointerAddress<ulong> ptrTextBlockV4;
+        internal PointerAddress<ulong> ptrProgramBlockV4;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="HeaderBlock" /> class.
@@ -22,8 +31,7 @@
         /// <param name="mdf">The MDF.</param>
         /// <exception cref="System.FormatException"></exception>
         private HeaderBlock(Mdf mdf) : base(mdf)
-        {
-        }
+        { }
 
         [MdfVersion(400, 0)]
         public ulong StartTimeNs { get; set; }
@@ -216,62 +224,70 @@
         internal static HeaderBlock Read(Mdf mdf)
         {
             var block = new HeaderBlock(mdf);
+
             block.Read();
-            if (mdf.IDBlock.Version >= 400)
-            {
-                ReadV4(mdf, block);
-                return block;
-            }
-
-            block.ptrFirstDataGroup = mdf.ReadU32();
-            block.ptrTextBlock = mdf.ReadU32();
-            block.ptrProgramBlock = mdf.ReadU32();
-
-            block.DataGroupsCount = mdf.ReadU16();
-
-            block.Date = mdf.GetString(10);
-            block.Time = mdf.GetString(8);
-            block.Author = mdf.GetString(32);
-            block.Organization = mdf.GetString(32);
-            block.Project = mdf.GetString(32);
-            block.Subject = mdf.GetString(32);
-
-            if (mdf.IDBlock.Version == 320)
-            {
-                block.TimeStamp = mdf.ReadU64();
-                block.UTCTimeOffset = mdf.Read16();
-                block.TimeQuality = (TimeQuality)mdf.ReadU16();
-                block.TimerIdentification = mdf.GetString(32);
-            }
-            else
-            {
-                block.TimeStamp = 0;
-                block.UTCTimeOffset = 0;
-                block.TimeQuality = 0;
-                block.TimerIdentification = "";
-            }
-
-            // Check if ptrTextBlock is null
-            if (block.ptrTextBlock != 0)
-            {
-                block.FileComment = TextBlock.Read(mdf, block.ptrTextBlock);
-            }
-
-            // Check if ptrProgramBlock is null
-            if (block.ptrProgramBlock != 0)
-            {
-                block.ProgramBlock = ProgramBlock.Read(mdf, block.ptrProgramBlock);
-            }
-
-            // Check if ptrFirstDataGroup is null
-            if (block.ptrFirstDataGroup != 0)
-            {
-                mdf.DataGroups.Read(DataGroupBlock.Read(mdf, block.ptrFirstDataGroup));
-            }
-
             return block;
         }
 
+        internal override void ReadV23()
+        {
+            base.ReadV23();
+
+            listAddressesV23 = new List<PointerAddress<uint>>();
+
+            ptrFirstDataGroup = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), 4);
+            ptrTextBlock = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), ptrFirstDataGroup.offset+ 4);
+            ptrProgramBlock = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), ptrTextBlock.offset + 4);
+
+            DataGroupsCount = Mdf.ReadU16();
+
+            Date = Mdf.GetString(10);
+            Time = Mdf.GetString(8);
+            Author = Mdf.GetString(32);
+            Organization = Mdf.GetString(32);
+            Project = Mdf.GetString(32);
+            Subject = Mdf.GetString(32);
+
+            listAddressesV23.AddRange(new PointerAddress<uint>[]
+            {
+                ptrFirstDataGroup,
+                ptrTextBlock,
+                ptrProgramBlock,
+            });
+
+            if (Mdf.IDBlock.Version == 320)
+            {
+                TimeStamp = Mdf.ReadU64();
+                UTCTimeOffset = Mdf.Read16();
+                TimeQuality = (TimeQuality)Mdf.ReadU16();
+                TimerIdentification = Mdf.GetString(32);
+            }
+            else
+            {
+                TimeStamp = 0;
+                UTCTimeOffset = 0;
+                TimeQuality = 0;
+                TimerIdentification = "";
+            }
+
+            // Check if ptrTextBlock is null
+            if (ptrTextBlock.address != 0)
+            {
+                FileComment = TextBlock.Read(Mdf, (int)ptrTextBlock.address);
+            }
+
+            // Check if ptrProgramBlock is null
+            if (ptrProgramBlock.address != 0)
+            {
+                ProgramBlock = ProgramBlock.Read(Mdf, (int)ptrProgramBlock.address);
+            }
+
+            // Check if ptrFirstDataGroup is null
+            if (ptrFirstDataGroup.address != 0)
+            {
+                Mdf.DataGroups.Read(DataGroupBlock.Read(Mdf, (int)ptrFirstDataGroup.address));
+            }
+        }
 
         internal override ushort GetSize()
         {
@@ -301,6 +317,15 @@
             var bytesTimeQuality = BitConverter.GetBytes((ushort)TimeQuality);
             var bytesTimeIdentification = Mdf.IDBlock.Encoding.GetBytes(TimerIdentification);
 
+            ValidateEncodingLength(ref bytesDate, 10);
+            ValidateEncodingLength(ref bytesTime, 8);
+            ValidateEncodingLength(ref bytesAuthor, 32);
+            ValidateEncodingLength(ref bytesOrganization, 32);
+            ValidateEncodingLength(ref bytesProject, 32);
+            ValidateEncodingLength(ref bytesSubject, 32);
+            ValidateEncodingLength(ref bytesTimeIdentification, 32);
+
+
             Array.Copy(bytesDataGroupsCount, 0, array, index + 16, bytesDataGroupsCount.Length);
             Array.Copy(bytesDate, 0, array, index + 18, bytesDate.Length);
             Array.Copy(bytesTime, 0, array, index + 28, bytesTime.Length);
@@ -321,6 +346,44 @@
                 index += 44;
             }
         }
+        internal override void Write(List<byte> array)
+        {
+            var newList = new List<byte>();
+
+            var bytesFirstDataGroup = BitConverter.GetBytes(ptrFirstDataGroup.address);
+            newList.AddRange(bytesFirstDataGroup);
+
+            WriteFileComment(newList);
+            WriteProgramBlock(newList);
+
+            var bytesDataGroupsCount = BitConverter.GetBytes(Mdf.DataGroups.Count);
+            var bytesDate = Mdf.IDBlock.Encoding.GetBytes(Date);
+            var bytesTime = Mdf.IDBlock.Encoding.GetBytes(Time);
+            var bytesAuthor = Mdf.IDBlock.Encoding.GetBytes(Author);
+            var bytesOrganization = Mdf.IDBlock.Encoding.GetBytes(Organization);
+            var bytesProject = Mdf.IDBlock.Encoding.GetBytes(Project);
+            var bytesSubject = Mdf.IDBlock.Encoding.GetBytes(Subject);
+            var bytesTimestamp = BitConverter.GetBytes(TimeStamp);
+            var bytesUtcTimeOffset = BitConverter.GetBytes(UTCTimeOffset);
+            var bytesTimeQuality = BitConverter.GetBytes((ushort)TimeQuality);
+            var bytesTimeIdentification = Mdf.IDBlock.Encoding.GetBytes(TimerIdentification);
+
+            newList.AddRange(bytesDataGroupsCount);
+            newList.AddRange(bytesDate);
+            newList.AddRange(bytesTime);
+            newList.AddRange(bytesAuthor);
+            newList.AddRange(bytesOrganization);
+            newList.AddRange(bytesProject);
+            newList.AddRange(bytesSubject);
+            newList.AddRange(bytesTimestamp);
+            newList.AddRange(bytesUtcTimeOffset);
+            newList.AddRange(bytesTimeQuality);
+            newList.AddRange(bytesTimeIdentification);
+
+            base.Write(newList);
+
+            array.AddRange(newList);
+        }
         internal void WriteFirstDataGroupLink(byte[] array, int index, int baseIndex)
         {
             var bytesFirstDataGroupLink = BitConverter.GetBytes(index);
@@ -337,6 +400,16 @@
 
             FileComment.Write(array, ref index);
         }
+        internal void WriteFileComment(List<byte> array)
+        {
+            if (FileComment == null) return;
+
+            var bytesFileCommentLink = BitConverter.GetBytes(FileComment.BlockAddress);
+
+            array.AddRange(bytesFileCommentLink);
+
+            FileComment.Write(array);
+        }
         internal void WriteProgramBlock(byte[] array, ref int index, int baseIndex)
         {
             if (ProgramBlock == null) return;
@@ -347,37 +420,89 @@
 
             ProgramBlock.Write(array, ref index);
         }
-        private static void ReadV4(Mdf mdf, HeaderBlock block)
+        internal void WriteProgramBlock(List<byte> array)
         {
+            if (ProgramBlock == null) return;
 
-            block.ptrFirstDataGroup = mdf.ReadU64(); //Adress DataGroup
+            var bytesProgramLink = BitConverter.GetBytes(ProgramBlock.BlockAddress);
+
+            array.AddRange(bytesProgramLink);
+
+            ProgramBlock.Write(array);
+        }
+        internal override void ReadV4()
+        {
+            base.ReadV4();
+
+            listAddressesV4 = new List<PointerAddress<ulong>>();
+
+            ptrFirstDataGroupV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf), 24); //Adress DataGroup
                                                //skiped: FileHistoryBlock (not used) +8
                                                //skiped: Chanel... (not used)        +8
                                                //skiped: AttachmentBlock (not used)  +8
                                                //skiped: EventBlock (not used)       +8
-            ulong skippedCount = 8 * 4;
-            mdf.UpdatePosition(mdf.position + skippedCount);
+            var skippedCount = 8 * 4;
+            Mdf.UpdatePosition(Mdf.position + skippedCount);
 
-            block.ptrTextBlock = mdf.ReadU64();
-            block.StartTimeNs = mdf.ReadU64();
-            block.TimeZoneOffsetMinutes = mdf.Read16();
-            block.DstOffsetMinutes = mdf.Read16();
-            block.TimeFlags = mdf.ReadByte();
-            block.TimeClass = mdf.ReadByte();
-            block.Flags = mdf.ReadByte();
-            block.Reserved1 = mdf.ReadByte();
-            block.StartAngle = mdf.ReadDouble();
-            block.StartDistance = mdf.ReadDouble();
+            ptrTextBlockV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf), skippedCount + ptrFirstDataGroupV4.offset);
+            StartTimeNs = Mdf.ReadU64();
+            TimeZoneOffsetMinutes = Mdf.Read16();
+            DstOffsetMinutes = Mdf.Read16();
+            TimeFlags = Mdf.ReadByte();
+            TimeClass = Mdf.ReadByte();
+            Flags = Mdf.ReadByte();
+            Reserved1 = Mdf.ReadByte();
+            StartAngle = Mdf.ReadDouble();
+            StartDistance = Mdf.ReadDouble();
 
-            if (block.ptrTextBlock != 0)
+            listAddressesV4.AddRange(new PointerAddress<ulong>[]
             {
-                block.FileComment = TextBlock.Read(mdf, block.ptrTextBlock);
+                ptrFirstDataGroupV4,
+                ptrTextBlockV4,
+            });
+
+            if (ptrTextBlockV4.address != 0)
+            {
+                FileComment = TextBlock.Read(Mdf, (int)ptrTextBlockV4.address);
             }
 
             // Check if ptrFirstDataGroup is null
-            if (block.ptrFirstDataGroup != 0)
+            if (ptrFirstDataGroupV4.address != 0)
             {
-                mdf.DataGroups.Read(DataGroupBlock.Read(mdf, block.ptrFirstDataGroup));
+                Mdf.DataGroups.Read(DataGroupBlock.Read(Mdf, (int)ptrFirstDataGroupV4.address));
+            }
+        }
+        internal void HeaderUpdateAddress(int indexDeleted, List<byte> bytes, ulong countDeleted)
+        {
+            if (Mdf.IDBlock.Version >= 400)
+                HeaderUpdateAddressV4(indexDeleted, bytes, countDeleted);
+            else
+                HeaderUpdateAddressV23(indexDeleted, bytes, (uint)countDeleted);
+        }
+
+        private void HeaderUpdateAddressV23(int indexDeleted, List<byte> bytes, uint countDeleted)
+        {
+            foreach (var ptr in listAddressesV23)
+            {
+                if ((int)ptr.address >= indexDeleted)
+                {
+                    ptr.address -= countDeleted;
+
+                    this.CopyAddress(ptr, bytes, indexDeleted, countDeleted);
+                }
+            }
+        }
+
+        private void HeaderUpdateAddressV4(int indexDeleted, List<byte> bytes, ulong countDeleted)
+        {
+            foreach (var ptr in listAddressesV4)
+            {
+                if ((int)ptr.address >= indexDeleted)
+                {
+                    ptr.address -= countDeleted;
+
+                    this.CopyAddress(ptr, bytes, indexDeleted, countDeleted);
+                }
             }
         }
     }

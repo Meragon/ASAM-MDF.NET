@@ -1,7 +1,9 @@
 ﻿namespace ASAM.MDF.Libary
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text;
 
     using ASAM.MDF.Libary.Types;
@@ -22,12 +24,12 @@
         private string reserved2;
 
         private IdentificationBlock()
-        {
-        }
+        { }
 
         public Mdf Mdf { get; private set; }
 
         public Encoding Encoding { get; private set; }
+        public int Size { get; set; }
 
         /// <summary>
         /// The file identifier always contains "MDF". ("MDF" followed by five spaces)
@@ -117,6 +119,8 @@
             set
             {
                 codePage = value;
+                if (value == 1251)
+                    Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
                 Encoding = value == 0 ? Encoding.ASCII : Encoding.GetEncoding(value);
             }
         }
@@ -165,6 +169,7 @@
         public static IdentificationBlock Read(Mdf mdf)
         {
             var block = new IdentificationBlock();
+            var prevPos = mdf.position;
 
             block.Mdf = mdf;
             block.fileIdentifier = GetString(mdf, 8).Humanize();
@@ -176,6 +181,7 @@
             block.CodePage = mdf.ReadU16();
             block.reserved1 = GetString(mdf, 2).Humanize();
             block.reserved2 = GetString(mdf, 30).Humanize();
+            block.Size  = mdf.position - prevPos;
 
             return block;
         }
@@ -196,6 +202,12 @@
             var bytesReserved1 = Encoding.UTF8.GetBytes(Reserved1);
             var bytesReserved2 = Encoding.UTF8.GetBytes(Reserved2);
 
+            ValidateEncodingLength(ref bytesFileIdentifier, 8);
+            ValidateEncodingLength(ref bytesFormatIdentifier, 8);
+            ValidateEncodingLength(ref bytesProgramIdentifier, 8);
+            ValidateEncodingLength(ref bytesReserved1, 2);
+            ValidateEncodingLength(ref bytesReserved2, 30);
+
             Array.Copy(bytesFileIdentifier, 0, array, index, bytesFileIdentifier.Length);
             Array.Copy(bytesFormatIdentifier, 0, array, index + 8, bytesFormatIdentifier.Length);
             Array.Copy(bytesProgramIdentifier, 0, array, index + 16, bytesProgramIdentifier.Length);
@@ -207,6 +219,29 @@
             Array.Copy(bytesReserved2, 0, array, index + 34, bytesReserved2.Length);
 
             index += GetSize();
+        }
+
+        internal void Write(List<byte> array)
+        {
+            var bytesFileIdentifier = Encoding.UTF8.GetBytes(FileIdentifier);
+            var bytesFormatIdentifier = Encoding.UTF8.GetBytes(FormatIdentifier);
+            var bytesProgramIdentifier = Encoding.UTF8.GetBytes(ProgramIdentifier);
+            var bytesByteOrder = BitConverter.GetBytes((ushort)ByteOrder);
+            var bytesFloatingPointFormat = BitConverter.GetBytes((ushort)FloatingPointFormat);
+            var bytesVersion = BitConverter.GetBytes(Version);
+            var bytesCodePage = BitConverter.GetBytes(CodePage);
+            var bytesReserved1 = Encoding.UTF8.GetBytes(Reserved1);
+            var bytesReserved2 = Encoding.UTF8.GetBytes(Reserved2);
+
+            array.AddRange(bytesFileIdentifier);
+            array.AddRange(bytesFormatIdentifier);
+            array.AddRange(bytesProgramIdentifier);
+            array.AddRange(bytesByteOrder);
+            array.AddRange(bytesFloatingPointFormat);
+            array.AddRange(bytesVersion);
+            array.AddRange(bytesCodePage);
+            array.AddRange(bytesReserved1);
+            array.AddRange(bytesReserved2);
         }
 
         /// <summary>
@@ -232,9 +267,14 @@
                 target = value;
             }
         }
-        private static string GetString(Mdf mdf, ulong count)
+        private static string GetString(Mdf mdf, int count)
         {
-            return Encoding.UTF8.GetString(mdf.Data, mdf.AdvanceIndex(count), (int)count);
+            return Encoding.UTF8.GetString(mdf.Data, mdf.AdvanceIndex(count), count);
+        }
+        public void ValidateEncodingLength(ref byte[] bytes, int countConstraints)
+        {
+            if (bytes.Length > countConstraints)
+                bytes = bytes.Take(countConstraints).ToArray();
         }
     }
 }

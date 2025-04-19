@@ -12,8 +12,7 @@ namespace ASAM.MDF.Libary
         public DimBlockSupplement DimBlockSupplement { get; private set; }
         public VectorCanBlockSupplement VectorCanBlockSupplement { get; private set; }
 
-        public ChannelExtensionBlock(Mdf mdf, ulong position)
-          : base(mdf)
+        public ChannelExtensionBlock(Mdf mdf, ulong position) : base(mdf)
         {
             byte[] data = new byte[Size - 4];
             data = Mdf.Data.Take(data.Length).ToArray();
@@ -21,13 +20,13 @@ namespace ASAM.MDF.Libary
             Type = (ExtensionType)BitConverter.ToUInt16(data, 0);
 
             if (Type == ExtensionType.DIM)
-          {
-            DimBlockSupplement = new DimBlockSupplement(mdf);
-          }
-          else if (Type == ExtensionType.VectorCAN)
-          {
-            VectorCanBlockSupplement = new VectorCanBlockSupplement(mdf);
-          }
+            {
+                DimBlockSupplement = new DimBlockSupplement(mdf);
+            }
+            else if (Type == ExtensionType.VectorCAN)
+            {
+                VectorCanBlockSupplement = new VectorCanBlockSupplement(mdf);
+            }
         }
     }
 }

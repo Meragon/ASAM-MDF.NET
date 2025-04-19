@@ -27,7 +27,7 @@
 
         internal void Read(DataGroupBlock block)
         {
-            items = Common.BuildBlockList(null, block);
+            items = Common.BuildBlockList(null, block, Mdf);
         }
         internal void Write(byte[] array, ref int index)
         {
@@ -68,6 +68,9 @@
 
                 block.WriteRecords(array, ref index, blockIndexes[i]);
             }
+        }
+        internal void Write(List<byte> array)
+        {
         }
 
         // IList.

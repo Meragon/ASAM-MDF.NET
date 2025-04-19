@@ -1,7 +1,10 @@
 ﻿namespace ASAM.MDF.Libary
 {
     using System;
+    using System.Collections.Generic;
+    using System.Drawing;
     using System.IO;
+    using System.Linq;
     using System.Text;
 
     public class TextBlock : Block
@@ -51,21 +54,27 @@
             return "{TXBLOCK: " + Text + "}";
         }
 
-        internal static TextBlock Read(Mdf mdf, ulong position)
+        internal static TextBlock Read(Mdf mdf, int position)
         {
+            if (mdf.Data.Length < position)
+                return null;
+
             mdf.UpdatePosition(position);
 
             var block = new TextBlock(mdf);
             block.Read();
 
-            block.Text = mdf.GetString(block.Size - mdf.position + block.BlockAddress);
+            if (block.Size > (ulong)mdf.data.Length || block.Size <= 4)
+                return null;
+
+            block.Text = mdf.GetString((int)block.Size - (mdf.position - block.BlockAddress));
 
             return block;
         }
 
         internal override ushort GetSize()
         {
-            return (ushort)(4 + Text.Length);
+            return (ushort)(4 + Mdf.IDBlock.Encoding.GetBytes(Text).Length);
         }
         internal override void Write(byte[] array, ref int index)
         {
@@ -76,6 +85,18 @@
             Array.Copy(bytesText, 0, array, index + 4, bytesText.Length);
 
             index += GetSize();
+        }
+        internal override void Write(List<byte> array)
+        {
+            var newList = new List<byte>(); 
+
+            var bytesText = Mdf.IDBlock.Encoding.GetBytes(Text);
+            
+            newList.AddRange(bytesText);
+
+            base.Write(newList);
+
+            array.AddRange(newList);
         }
     }
 }

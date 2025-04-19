@@ -7,16 +7,16 @@
     {
         private List<ChannelGroupBlock> items = new List<ChannelGroupBlock>();
         
-        public ChannelGroupCollection(Mdf mdf, DataGroupBlock dataGroupBlock)
+        public ChannelGroupCollection(Mdf mdf, DataGroupBlock parent)
         {
             if (mdf == null)
                 throw new ArgumentNullException("mdf");
 
             Mdf = mdf;
-            DataGroupBlock = dataGroupBlock;
+            Parent = parent;
         }
 
-        public DataGroupBlock DataGroupBlock { get; internal set; }
+        DataGroupBlock Parent { get; }
         public Mdf Mdf { get; private set; }
         public int Count
         {
@@ -33,9 +33,13 @@
             set { throw new NotImplementedException(); }
         }
 
-        internal void Read(ChannelGroupBlock channelGroupBlock)
+        internal void Read(ChannelGroupBlock channelGroupBlock, ChannelGroupBlock.ChannelGroupBlockHandler action)
         {
-            items = Common.BuildBlockList(null, channelGroupBlock);
+            items = Common.BuildBlockList(null, channelGroupBlock, Parent);
+
+            if (action != null)
+                foreach (ChannelGroupBlock block in items)
+                    block.ChannelGroupRemove += (cg, bytes) => action(cg, bytes);
         }
         internal void Write(byte[] array, ref int index)
         {

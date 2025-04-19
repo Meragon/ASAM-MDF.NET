@@ -8,17 +8,17 @@ namespace ASAM.MDF.Libary
     public class DataListCollection : IList<DataList>
     {
         private List<DataList> items = new List<DataList>();
-        public DataListCollection(Mdf mdf, DataGroupBlock dataGroupBlock)
+        public DataListCollection(Mdf mdf, DataGroupBlock parent)
         {
             if (mdf == null)
                 throw new ArgumentNullException("mdf");
 
             Mdf = mdf;
-            DataGroupBlock = dataGroupBlock;
+            Parent = parent;
         }
 
         public Mdf Mdf { get; private set; }
-        public DataGroupBlock DataGroupBlock { get; internal set; }
+        DataGroupBlock Parent { get; }
         public int Count
         {
             get { return items.Count; }
@@ -36,7 +36,7 @@ namespace ASAM.MDF.Libary
 
         internal void Read(DataList datalistBlock)
         {
-            items = Common.BuildBlockList(null, datalistBlock);
+            items = Common.BuildBlockList(null, datalistBlock, Parent);
         }
         
 

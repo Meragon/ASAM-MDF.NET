@@ -1,10 +1,12 @@
 ﻿namespace ASAM.MDF.Libary
 {
+    using System;
     using System.Collections.Generic;
+    using System.Security;
 
     internal static class Common
     {
-        internal static List<T> BuildBlockList<T>(List<T> list, T first) where T : INext<T>
+        internal static List<T> BuildBlockList<T, U>(List<T> list, T first, U parent) where T : INext<T>, IPrevious<T>, IParent<U>
         {
             if (list == null)
             {
@@ -12,8 +14,14 @@
                 T current = first;
                 while (current != null)
                 {
+                    current.Parent = parent;
                     list.Add(current);
+
+                    var prevCurrent = current;
                     current = current.Next;
+
+                    if (current != null)
+                        current.Previous = prevCurrent;
                 }
             }
 

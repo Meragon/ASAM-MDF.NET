@@ -2,26 +2,28 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
 
     public class ChannelCollection : IList<ChannelBlock>
     {
         private List<ChannelBlock> items = new List<ChannelBlock>();
 
-        public ChannelCollection(Mdf mdf)
+        public ChannelCollection(Mdf mdf, ChannelGroupBlock parent)
         {
             if (mdf == null)
                 throw new ArgumentNullException("mdf");
+
+            Parent = parent;
         }
 
-        public Mdf Mdf { get; private set; }
-        public int Count
-        {
-            get { return items.Count; }
-        }
+        public Mdf Mdf { get; }
+        public int Count => items.Count;
         public bool IsReadOnly
         {
             get { throw new NotImplementedException(); }
         }
+
+        ChannelGroupBlock Parent { get; }
 
         public ChannelBlock this[int index]
         {
@@ -35,9 +37,13 @@
             }
         }
 
-        internal void Read(ChannelBlock cnBlock)
+        internal void Read(ChannelBlock cnBlock, ChannelBlock.ChanelHandlerRemovedAddress action)
         {
-            items = Common.BuildBlockList(null, cnBlock);
+            items = Common.BuildBlockList(null, cnBlock, Parent);
+
+            if (action != null)
+                foreach (var item in items)
+                    item.ChanelsRemovedAddress += (ch, bytes) => action(ch, bytes);
         }
         internal void Write(byte[] array, ref int index)
         {
@@ -56,6 +62,9 @@
 
                 block.Write(array, ref index);
                 block.WriteChannelConversion(array, ref index, prevIndex);
+                block.WriteComment(array, ref index, prevIndex);
+                block.WriteLongSignalName(array, ref index, prevIndex);
+                block.WriteDisplayName(array, ref index, prevIndex);
             }
         }
 

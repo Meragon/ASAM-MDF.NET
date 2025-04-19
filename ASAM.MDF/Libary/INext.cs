@@ -1,13 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
-namespace ASAM.MDF.Libary
+﻿namespace ASAM.MDF.Libary
 {
-    public interface INext<T>
-        where T : INext<T>
+    internal interface INext<T> where T : INext<T>
     {
         T Next { get; }
+    }
+    internal interface IPrevious<T> where T : IPrevious<T>
+    {
+        T Previous { get; set; }
+    }
+    internal interface IParent<T>
+    {
+        T Parent { get; set; }
     }
 }

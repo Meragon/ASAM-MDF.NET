@@ -2,14 +2,14 @@
 {
     using System;
     using System.Linq;
+    using System.Security.Cryptography;
 
     public class ProgramBlock : Block
     {
         private byte[] data;
 
         private ProgramBlock(Mdf mdf) : base(mdf)
-        {
-        }
+        { }
 
         public byte[] Data
         {
@@ -44,21 +44,25 @@
             return "{PRBLOCK: Data[" + Data.Length + "]}";
         }
 
-        internal static ProgramBlock Read(Mdf mdf, ulong position)
+        internal static ProgramBlock Read(Mdf mdf, int position)
         {
             mdf.UpdatePosition(position);
 
             var block = new ProgramBlock(mdf);
+
             block.Read();
-
-            Array.Copy(mdf.Data, (int)mdf.position, block.Data, 0, (int)block.Size);
-
             return block;
+        }
+        internal override void ReadV23()
+        {
+            base.ReadV23();
+
+            Array.Copy(Mdf.Data, Mdf.position, Data, 0, (int)Size);
         }
 
         internal override ushort GetSize()
         {
-            return (ushort)(4 + Data.Length);
+            return (ushort)((int)Size + Data.Length);
         }
         internal override void Write(byte[] array, ref int index)
         {

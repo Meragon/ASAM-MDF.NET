@@ -2,17 +2,22 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
 
-    public class DataGroupBlock : Block, INext<DataGroupBlock>
+    public class DataGroupBlock : Block, INext<DataGroupBlock>, IPrevious<DataGroupBlock>, IParent<Mdf>
     {
-        private DataGroupBlock nextBlock;
-        private ulong ptrNextDataGroup;
-        private ulong ptrFirstChannelGroupBlock;
-        private ulong ptrTriggerBlock;
-        private ulong ptrDataBlock;
-        private ulong ptrTextBlock;
+        internal PointerAddress<uint> ptrNextDataGroup;
+        internal PointerAddress<uint> ptrFirstChannelGroupBlock;
+        internal PointerAddress<uint> ptrTriggerBlock;
+        internal PointerAddress<uint> ptrDataBlock;
+
+        internal PointerAddress<ulong> ptrNextDataGroupV4;
+        internal PointerAddress<ulong> ptrFirstChannelGroupBlockV4;
+        internal PointerAddress<ulong> ptrTriggerBlockV4;
+        internal PointerAddress<ulong> ptrDataBlockV4;
+        internal PointerAddress<ulong> ptrTextBlockV4;
+
         private DataRecord[] records;
+        private DataGroupBlock nextBlock;
 
         private DataGroupBlock(Mdf mdf) : base(mdf)
         {
@@ -24,12 +29,18 @@
         {
             get
             {
-                if (nextBlock == null && ptrNextDataGroup != 0)
-                    nextBlock = Read(Mdf, ptrNextDataGroup);
+                if (Mdf.IDBlock.Version >= 400)
+                {
+                    if (nextBlock == null && ptrNextDataGroupV4 != null && ptrNextDataGroupV4?.address != 0)
+                        nextBlock = Read(Mdf, (int)ptrNextDataGroupV4.address);
+                }
+                else if (nextBlock == null && ptrNextDataGroup != null && ptrNextDataGroup.address != 0)
+                    nextBlock = Read(Mdf, (int)ptrNextDataGroup.address);
 
                 return nextBlock;
             }
         }
+        public DataGroupBlock Previous { get; set; }
         public ChannelGroupCollection ChannelGroups { get; private set; }
         public DataListCollection DataListColl { get; private set; }
         public TriggerBlock Trigger { get; set; }
@@ -55,6 +66,7 @@
 
         public TextBlock FileComment { get; private set; }
         internal DataZippedBlock DataZipped { get; private set; }
+        public Mdf Parent { get; set; }
 
         //public uint Reserved { get; set; }
 
@@ -65,88 +77,240 @@
                 Identifier = "DG"
             };
         }
-        public static DataGroupBlock Read(Mdf mdf, ulong position)
+        public static DataGroupBlock Read(Mdf mdf, int position)
         {
             mdf.UpdatePosition(position);
 
             var block = new DataGroupBlock(mdf);
-            block.Read();
-
             block.nextBlock = null;
             block.Trigger = null;
             block.Reserved = 0;
 
-            if (mdf.IDBlock.Version >= 400)
+            block.Read();
+            block.Records = block.ReadRecords();
+
+            return block;
+        }
+        internal override void ReadV23()
+        {
+            base.ReadV23();
+
+            listAddressesV23 = new List<PointerAddress<uint>>();
+
+            ptrNextDataGroup = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), 4);
+            ptrFirstChannelGroupBlock = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), ptrNextDataGroup.offset + 4);
+            ptrTriggerBlock = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), ptrFirstChannelGroupBlock.offset + 4);
+            ptrDataBlock = new PointerAddress<uint>(Mdf.ReadU32().ValidateAddress(Mdf), ptrTriggerBlock.offset + 4);
+            NumChannelGroups = Mdf.ReadU16();
+            NumRecordIds = Mdf.ReadU16();
+
+            if (Size >= 24)
+                Reserved = Mdf.ReadU32();
+
+            if (ptrFirstChannelGroupBlock.address != 0)
             {
-                ReadV4(mdf, block);
-                return block;
+                var CGBlock = ChannelGroupBlock.Read(Mdf, (int)ptrFirstChannelGroupBlock.address);
+                //CGBlock.ChannelGroupRemove += CGBlock_ChannelGroupRemove;
+                ChannelGroups.Read(CGBlock, CGBlock_ChannelGroupRemove);
             }
 
-            block.ptrNextDataGroup = mdf.ReadU32();
-            block.ptrFirstChannelGroupBlock = mdf.ReadU32();
-            block.ptrTriggerBlock = mdf.ReadU32();
-            block.ptrDataBlock = mdf.ReadU32();
-            block.NumChannelGroups = mdf.ReadU16();
-            block.NumRecordIds = mdf.ReadU16();
-
-            if (block.Size >= 24)
-                block.Reserved = mdf.ReadU32();
-
-
-            if (block.ptrTextBlock != 0)
-                block.FileComment = TextBlock.Read(mdf, block.ptrTextBlock);
-
-            if (block.ptrFirstChannelGroupBlock != 0)
-                block.ChannelGroups.Read(ChannelGroupBlock.Read(mdf, block.ptrFirstChannelGroupBlock));
+            listAddressesV23.AddRange(new PointerAddress<uint>[]
+            {
+                ptrNextDataGroup,
+                ptrFirstChannelGroupBlock,
+                ptrTriggerBlock,
+                ptrDataBlock,
+            });
 
             /// TODO: Call Trigger Blocks
             //if (m_ptrTriggerBlock != 0)
             //{
             //    Mdf.Data.Position = m_ptrTriggerBlock;
-            //    Trigger = new TriggerBlock(mdf);
+            //    Trigger = new TriggerBlock(Mdf);
             //}
 
             /// TODO: Call ProgramsBlock ?
             //if (ptrProgramBlock != 0)
             //{
             //    Mdf.Data.Position = ptrProgramBlock;
-            //    ProgramBlock = new ProgramBlock(mdf);
+            //    ProgramBlock = new ProgramBlock(Mdf);
             //}
-
-            block.Records = block.ReadRecords();
-
-            return block;
         }
-
-        private static void ReadV4(Mdf mdf, DataGroupBlock block)
+        internal override void ReadV4()
         {
-            block.ptrNextDataGroup = mdf.ReadU64();
-            block.ptrFirstChannelGroupBlock = mdf.ReadU64();
-            block.ptrDataBlock = mdf.ReadU64();
-            block.ptrTextBlock = mdf.ReadU64();
-            block.NumRecordIds = mdf.ReadByte();
-            block.Reserved1 = mdf.ReadByte();
+            base.ReadV4();
 
-            if (block.ptrTextBlock != 0)
-                block.FileComment = TextBlock.Read(mdf, block.ptrTextBlock);
+            listAddressesV4 = new List<PointerAddress<ulong>>();
 
-            if (block.ptrFirstChannelGroupBlock != 0)
-                block.ChannelGroups.Read(ChannelGroupBlock.Read(mdf, block.ptrFirstChannelGroupBlock));
+            ptrNextDataGroupV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf), 24);
+            ptrFirstChannelGroupBlockV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf), ptrNextDataGroupV4.offset + 8);
+            ptrDataBlockV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf),ptrFirstChannelGroupBlockV4.offset + 8);
+            ptrTextBlockV4 = new PointerAddress<ulong>(Mdf.ReadU64().ValidateAddress(Mdf), ptrDataBlockV4.offset + 8);
+            NumRecordIds = Mdf.ReadByte();
+            Reserved1 = Mdf.ReadByte();
 
-            if (block.ptrDataBlock != 0)
+            if (ptrTextBlockV4.address != 0)
+                FileComment = TextBlock.Read(Mdf, (int)ptrTextBlockV4.address);
+
+            if (ptrFirstChannelGroupBlockV4.address != 0)
             {
-                var indentificator = mdf.GetNameBlock(block.ptrDataBlock);
+                var CGBlock = ChannelGroupBlock.Read(Mdf, (int)ptrFirstChannelGroupBlockV4.address);
+                //CGBlock.ChannelGroupRemove += CGBlock_ChannelGroupRemove;
+                ChannelGroups.Read(CGBlock, CGBlock_ChannelGroupRemove);
+            }
+
+            if (ptrDataBlockV4.address != 0)
+            {
+                var indentificator = Mdf.GetNameBlock((int)ptrDataBlockV4.address);
 
                 if (indentificator == "DZ")
-                    block.DataZipped = DataZippedBlock.Read(mdf, block.ptrDataBlock);
+                    DataZipped = DataZippedBlock.Read(Mdf, (int)ptrDataBlockV4.address);
 
                 if (indentificator == "DL")
                 {
-                    block.DataListColl.Read(DataList.Read(mdf, block.ptrDataBlock));
+                    DataListColl.Read(DataList.Read(Mdf, (int)ptrDataBlockV4.address));
                 }
             }
 
-            block.Records = block.ReadRecords();
+            listAddressesV4.AddRange(new PointerAddress<ulong>[]
+            {
+                ptrNextDataGroupV4,
+                ptrDataBlockV4,
+                ptrFirstChannelGroupBlockV4,
+                ptrTextBlockV4,
+            });
+        }
+
+        private void CGBlock_ChannelGroupRemove(ChannelGroupBlock block, List<byte> bytes)
+        {
+
+            if (Mdf.IDBlock.Version >= 400)
+            {
+                RemoveChannelGroupsV4(block, bytes);
+                RemoveDataRecordsV4(block, bytes);
+            }
+            else
+            {
+                RemoveChannelGroups(block, bytes);
+                RemoveDataRecords(block, bytes);
+            }
+        }
+
+        private void RemoveChannelGroups(ChannelGroupBlock block, List<byte> bytes)
+        {
+            if (ptrFirstChannelGroupBlock.address == block.BlockAddress && NumChannelGroups == 1)
+            {
+                var ptrFirst = 0u;
+                var thisPointer = BlockAddress;
+                if (Previous != null)
+                    thisPointer = (int)Previous.ptrNextDataGroup.address;
+
+                var ptrOffset = thisPointer + ptrFirstChannelGroupBlock.offset;
+                var newbytes = BitConverter.GetBytes(ptrFirst);
+                for (int i = ptrOffset, j = 0; j < newbytes.Length; i++, j++)
+                    bytes[i] = newbytes[j];
+            }
+            else if (ptrFirstChannelGroupBlock.address == block.BlockAddress)
+            {
+                var ptrFirst = (uint)block.Next.BlockAddress;
+
+                var ptrOffset = BlockAddress + ptrFirstChannelGroupBlock.offset;
+                var newbytes = BitConverter.GetBytes(ptrFirst);
+                for (int i = ptrOffset, j = 0; j < newbytes.Length; i++, j++)
+                    bytes[i] = newbytes[j];
+
+            }
+        }
+
+        private void RemoveDataRecords(ChannelGroupBlock block, List<byte> bytes)
+        {
+            var byteOffset = 0;
+            for (int i = 0; i < NumChannelGroups; i++)
+            {
+                var cg = ChannelGroups[i];
+                if (cg == block)
+                    break;
+
+                byteOffset += (int)cg.NumRecords * cg.RecordSize;
+            }
+
+            if (NumChannelGroups > 0)
+            {
+                NumChannelGroups -= 1;
+
+                var numChannelGroupsOffset = BlockAddress + ptrDataBlock.offset + 4;
+                var value = BitConverter.GetBytes(NumChannelGroups);
+                for (int i = numChannelGroupsOffset, j = 0; j < value.Length; i++, j++)
+                    bytes[i] = value[j];
+            }
+
+            var countRecord = (int)block.NumRecords * block.RecordSize;
+
+            block.ClearDataType(bytes);
+
+            var indexStarted = (int)ptrDataBlock.address + byteOffset;
+
+            bytes.RemoveRange(indexStarted, countRecord);
+
+            Mdf.UpdateAddresses(bytes, (ulong)countRecord, indexStarted);
+        }
+        private void RemoveChannelGroupsV4(ChannelGroupBlock block, List<byte> bytes)
+        {
+            if (ptrFirstChannelGroupBlockV4.address == (ulong)block.BlockAddress && NumChannelGroups == 1)
+            {
+                var ptrFirst = 0u;
+                var thisPointer = BlockAddress;
+                if (Previous != null)
+                    thisPointer = (int)Previous.ptrNextDataGroup.address;
+
+                var ptrOffset = thisPointer + ptrFirstChannelGroupBlockV4.offset;
+                var newbytes = BitConverter.GetBytes(ptrFirst);
+                for (int i = ptrOffset, j = 0; j < newbytes.Length; i++, j++)
+                    bytes[i] = newbytes[j];
+            }
+            else if (ptrFirstChannelGroupBlockV4.address == (ulong)block.BlockAddress)
+            {
+                var ptrFirst = (uint)block.Next.BlockAddress;
+
+                var ptrOffset = BlockAddress + ptrFirstChannelGroupBlockV4.offset;
+                var newbytes = BitConverter.GetBytes(ptrFirst);
+                for (int i = ptrOffset, j = 0; j < newbytes.Length; i++, j++)
+                    bytes[i] = newbytes[j];
+
+            }
+        }
+
+        private void RemoveDataRecordsV4(ChannelGroupBlock block, List<byte> bytes)
+        {
+            var byteOffset = 0;
+            for (int i = 0; i < NumChannelGroups; i++)
+            {
+                var cg = ChannelGroups[i];
+                if (cg == block)
+                    break;
+
+                byteOffset += (int)cg.NumRecords * cg.RecordSize;
+            }
+
+            if (NumChannelGroups > 0)
+            {
+                NumChannelGroups -= 1;
+
+                var numChannelGroupsOffset = BlockAddress + ptrDataBlockV4.offset + 4;
+                var value = BitConverter.GetBytes(NumChannelGroups);
+                for (int i = numChannelGroupsOffset, j = 0; j < value.Length; i++, j++)
+                    bytes[i] = value[j];
+            }
+
+            var countRecord = (int)block.NumRecords * block.RecordSize;
+
+            block.ClearDataType(bytes);
+
+            var indexStarted = (int)ptrDataBlockV4.address + byteOffset;
+
+            bytes.RemoveRange(indexStarted, countRecord);
+
+            Mdf.UpdateAddresses(bytes, (ulong)countRecord, indexStarted);
         }
 
         internal DataRecord[] ReadRecords()
@@ -154,7 +318,10 @@
             var recordsList = new List<DataRecord>();
             var dataList = new List<DataBlock>();
 
-            var indentificator = Mdf.GetNameBlock(ptrDataBlock);
+            var indentificator = Mdf.GetNameBlock((int)ptrDataBlock.address);
+
+            if (Mdf.IDBlock.Version >= 400)
+                indentificator = Mdf.GetNameBlock((int)ptrDataBlockV4.address);
 
             if (indentificator == "DL")
             {
@@ -164,7 +331,10 @@
                 }
             }
 
-            Mdf.UpdatePosition(ptrDataBlock);
+            Mdf.UpdatePosition((int)ptrDataBlock.address);
+
+            if (Mdf.IDBlock.Version >= 400)
+                Mdf.UpdatePosition((int)ptrDataBlockV4.address);
 
             if (Mdf.IDBlock.Version >= 400)
             {
@@ -205,13 +375,17 @@
                 for (int i = 0; i < NumChannelGroups; i++)
                 {
                     var group = ChannelGroups[i];
+                    var countData = 0;
 
                     for (int k = 0; k < group.NumRecords; k++)
                     {
                         var recordData = Mdf.ReadBytes(group.RecordSize);
 
                         recordsList.Add(new DataRecord(group, recordData));
+                        
+                        countData += group.RecordSize;
                     }
+                    countData = 0;
                 }
             }
 
@@ -222,6 +396,7 @@
         {
             return 28;
         }
+
         internal override int GetSizeTotal()
         {
             var size = base.GetSizeTotal();
@@ -255,6 +430,44 @@
 
             index += GetSize();
         }
+        internal override void Write(List<byte> array)
+        {
+            var newList = new List<byte>();
+
+            var bytesNextGroupBlock = BitConverter.GetBytes(ptrNextDataGroup.address);
+            newList.AddRange(bytesNextGroupBlock);
+
+            WriteFirstChannelGroupBlockLink(newList);
+            WriteTriggerBlockLink(newList);
+            WriteDataBlockLink(newList);
+
+            var bytesNumChannelGroups = BitConverter.GetBytes(ChannelGroups.Count);
+            var bytesNumRecordsIds = BitConverter.GetBytes(NumRecordIds);
+            var bytesReserved = BitConverter.GetBytes(Reserved);
+
+            newList.AddRange(bytesNumChannelGroups);
+            newList.AddRange(bytesNumRecordsIds);
+            newList.AddRange(bytesReserved);
+
+            base.Write(newList);
+
+            array.AddRange(newList);
+        }
+
+        internal void WriteDataBlockLink(List<byte> newList)
+        {
+            var bytesDataBlockLink = BitConverter.GetBytes(ptrDataBlock.address);
+
+            newList.AddRange(bytesDataBlockLink);
+        }
+
+        internal void WriteTriggerBlockLink(List<byte> newList)
+        {
+            var bytesTriggerBlockLink = BitConverter.GetBytes(ptrTriggerBlock.address);
+
+            newList.AddRange(bytesTriggerBlockLink);
+        }
+
         internal void WriteChannelGroups(byte[] array, ref int index)
         {
             ChannelGroups.Write(array, ref index);
@@ -264,6 +477,12 @@
             var bytesFirst = BitConverter.GetBytes(index);
 
             Array.Copy(bytesFirst, 0, array, blockIndex + 8, bytesFirst.Length);
+        }
+        internal void WriteFirstChannelGroupBlockLink(List<byte> array)
+        {
+            var bytesFirst = BitConverter.GetBytes(ptrFirstChannelGroupBlock.address);
+
+            array.AddRange(bytesFirst);
         }
         internal void WriteNextBlockLink(byte[] array, int index, int blockIndex)
         {
@@ -289,6 +508,40 @@
                 Array.Copy(r.Data, 0, array, index, r.Data.Length);
 
                 index += r.Data.Length;
+            }
+        }
+
+        internal void DataGroupUpdateAddress(int indexDeleted, List<byte> bytes, ulong countDeleted)
+        {
+            if (Mdf.IDBlock.Version >= 400)
+                DataGroupUpdateAddressV4(indexDeleted, bytes, countDeleted);
+            else
+                DataGroupUpdateAddressV23(indexDeleted, bytes, (uint)countDeleted);
+        }
+
+        private void DataGroupUpdateAddressV23(int indexDeleted, List<byte> bytes, uint countDeleted)
+        {
+            foreach (var ptr in listAddressesV23)
+            {
+                if ((int)ptr.address >= indexDeleted)
+                {
+                    ptr.address -= countDeleted;
+
+                    this.CopyAddress(ptr, bytes, indexDeleted, countDeleted);
+                }
+            }
+        }
+
+        private void DataGroupUpdateAddressV4(int indexDeleted, List<byte> bytes, ulong countDeleted)
+        {
+            foreach (var ptr in listAddressesV4)
+            {
+                if ((int)ptr.address >= indexDeleted)
+                {
+                    ptr.address -= countDeleted;
+
+                    this.CopyAddress(ptr, bytes, indexDeleted, countDeleted);
+                }
             }
         }
     }
